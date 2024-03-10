@@ -2,6 +2,7 @@
 #define WIDGET_H
 
 #include <QWidget>
+#include "FileSystem.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class Widget; }
