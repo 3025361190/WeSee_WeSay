@@ -7,15 +7,16 @@ FileSystem::FileSystem()
     data = new QFile(dataPath);
 
     //用读写方式打开文件
-    index->open(QIODevice::ReadWrite | QIODevice::Text);
-    data->open(QIODevice::ReadWrite | QIODevice::Text);
+    index->open(QIODevice::ReadWrite);
+    data->open(QIODevice::ReadWrite);
 
     //初始化文件流对象
-    indexStream = new QTextStream(index);
-    dataStream = new QTextStream(data);
-    //设定编码格式为“UTF-8”
-    indexStream->setCodec("UTF-8");
-    indexStream->setCodec("UTF-8");
+    indexStream = new QDataStream(index);
+    dataStream = new QDataStream(data);
+    //设置数据流版本
+    indexStream->setVersion(QDataStream::Qt_5_14);
+    dataStream->setVersion(QDataStream::Qt_5_14);
+
 
     //创建链表
     indexLink = new DataNode();
@@ -23,30 +24,26 @@ FileSystem::FileSystem()
     indexLink->id = -1;
 
     //初始化链表
-    QString line = indexStream->readLine();
-    while (!line.isNull()) {
-
-        //创建新节点
-//        tempptr->next = new DataNode();
-//        tempptr = tempptr->next;
-//        tempptr->next = nullptr;
+    while (!indexStream->atEnd()) {
 
         DataNode * newNode = new DataNode();
         newNode->next = indexLink->next;
         indexLink->next = newNode;
 
-
         //读取id
         //qDebug() << line;
-        indexLink->next->id = line.toInt();
+        //indexLink->next->id = line.toInt();
+
+        *indexStream >> indexLink->next->id;
 
         //读取下一行
-        line = indexStream->readLine();
+        //line = indexStream->readLine();
 
         //读取dataPosition
         //qDebug() << line;
-        indexLink->next->dataPosition = line.toInt();
+        //indexLink->next->dataPosition = line.toInt();
 
+        *indexStream >> indexLink->next->dataPosition;
 
 //        //读取name
 //        qDebug() << line;
@@ -66,7 +63,7 @@ FileSystem::FileSystem()
 //        tempptr->describe = line;
 
         //读取下一行
-        line = indexStream->readLine();
+        //line = indexStream->readLine();
     }
 }
 
@@ -75,12 +72,12 @@ FileSystem::~FileSystem()
     index->close();
     data->close();
 
-    index->open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
+    index->open(QIODevice::WriteOnly | QIODevice::Truncate);
 
     DataNode * tempptr = indexLink;
     while(tempptr->next != nullptr)
     {
-        *indexStream << tempptr->next->id << "\n" << tempptr->next->dataPosition << "\n";
+        *indexStream << tempptr->next->id << tempptr->next->dataPosition;
 
         tempptr = tempptr->next;
     }
@@ -94,11 +91,26 @@ void FileSystem::AddRecord(Data newData)
     //记录当前记录存放在数据文件中的位置
     int currentPosition = data->size();
     //将newData写入数据文件
-    dataStream->seek(data->size());
-    *dataStream << newData.ToString() << "\n";
+    data->seek(currentPosition);
+    QString targetString = newData.ToString();
+    *dataStream << targetString.toUtf8();
+    qDebug() << "二进制：" <<targetString.toUtf8();
+    if(!data->flush())
+    {
+        qDebug() << "数据插入失败";
+        return;
+    }
+    qDebug() << "文件：" << data->size();
     //将newdata的id和currentPosition写入索引文件
-    indexStream->seek(index->size());
-    *indexStream << newData.id << "\n" << currentPosition << "\n";
+    index->seek(index->size());
+    *indexStream << newData.id << currentPosition;
+    if(!index->flush())
+    {
+        qDebug() << "索引插入失败";
+        data->resize(currentPosition);
+        return;
+    }
+
 
     //新建链表节点
     DataNode * newNode = new DataNode();
@@ -110,7 +122,7 @@ void FileSystem::AddRecord(Data newData)
     indexLink->next->dataPosition = currentPosition;
 }
 //删
-void FileSystem::DeleteRecord(int id)
+void FileSystem::DeleteRecord(qint64 id)
 {
     DataNode * tempptr = indexLink;
     while(tempptr->next != nullptr)
@@ -130,13 +142,13 @@ void FileSystem::DeleteRecord(int id)
     return;
 }
 //改
-void FileSystem::ModifyRecord(int id, Data newData)
+void FileSystem::ModifyRecord(qint64 id, Data newData)
 {
     DeleteRecord(id);
     AddRecord(newData);
 }
 //查
-Data FileSystem::FindRecord(int id)
+Data FileSystem::FindRecord(qint64 id)
 {
     int targetPosition = -1;
     DataNode * tempptr = indexLink;
@@ -155,8 +167,9 @@ Data FileSystem::FindRecord(int id)
         qDebug() << "未找到该记录";
         return Data();
     }
-    dataStream->seek(targetPosition);
-    QString targetData = dataStream->readLine();
-    targetData.resize(targetData.size() - 1);
-    return Data::FromString(targetData);
+    data->seek(targetPosition);
+    QByteArray targetData;
+    *dataStream >> targetData;
+    QString targetString = QString::fromUtf8(targetData);
+    return Data::FromString(targetString);
 }
